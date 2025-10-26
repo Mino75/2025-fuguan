@@ -1,0 +1,97 @@
+name: Build Windows - Fuguan
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install pkg
+      run: npm install -g pkg
+
+    - name: Build Windows executable
+      run: |
+        mkdir -p dist
+        pkg . --targets node20-win-x64 --output dist/fuguan.exe
+
+    - name: Verify executable exists
+      run: |
+        if (Test-Path "dist/fuguan.exe") {
+          Write-Host "✅ fuguan.exe built successfully"
+          Get-Item "dist/fuguan.exe" | Format-List
+        } else {
+          Write-Host "❌ Build failed - fuguan.exe not found"
+          exit 1
+        }
+
+    - name: Delete old latest-windows release
+      continue-on-error: true
+      run: |
+        gh release delete latest-windows --yes
+        git push origin :refs/tags/latest-windows
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create latest-windows release
+      run: |
+        $date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $notes = @"
+        # 🪟 Windows Build - Fuguan (副官)
+        
+        **Build Date:** $date
+        **Commit:** ${{ github.sha }}
+        **Branch:** ${{ github.ref_name }}
+        
+        ## 📥 Download
+        
+        Download ``fuguan.exe`` below and run it on Windows.
+        
+        ## 🚀 Usage
+        ``````powershell
+        .\fuguan.exe
+        ``````
+        
+        ## ⚙️ Configuration
+        
+        Place a ``config.json`` file in the same directory:
+        ``````json
+        {
+          "frequency": 60000,
+          "logPath": "logs"
+        }
+        ``````
+        "@
+        
+        $notes | Out-File -FilePath notes.md -Encoding utf8
+        
+        gh release create latest-windows `
+          dist/fuguan.exe `
+          --title "Latest Windows Build - Fuguan" `
+          --notes-file notes.md `
+          --latest
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload artifact for debugging
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fuguan-windows-debug
+        path: dist/
+        retention-days: 7
